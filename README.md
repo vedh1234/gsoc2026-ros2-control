@@ -19,10 +19,7 @@
 Action-chunk policies (VLAs, diffusion policies, ACT) emit joint targets at roughly 20 to 50 Hz and
 replan every 50 to 500 ms; the hardware underneath expects a fresh command every control cycle, at
 500 Hz to 2 kHz. Forwarding sparse waypoints as they arrive puts a velocity discontinuity and an
-acceleration spike at every waypoint, which is the command shape a drive's fault detection is built
-to reject.
-
-`joint_trajectory_controller` (JTC) assumes a motion planner supplies a complete trajectory, with
+acceleration spike at every waypoint. `joint_trajectory_controller` (JTC) assumes a motion planner supplies a complete trajectory, with
 derivatives and with enough time to finish before the next one arrives. A policy supplies neither.
 Three gaps followed, one per section below:
 
@@ -84,9 +81,9 @@ Implementation notes:
 
 ## 2. Positions-only action chunks in JTC
 
-Open as [ros2_controllers#2491](https://github.com/ros-controls/ros2_controllers/pull/2491), with
+Merged as [ros2_controllers#2491](https://github.com/ros-controls/ros2_controllers/pull/2491), with
 cross-chunk continuity following as
-[vedh1234/ros2_controllers#4](https://github.com/vedh1234/ros2_controllers/pull/4), stacked on it.
+[vedh1234/ros2_controllers#2573](https://github.com/ros-controls/ros2_controllers/pull/2573).
 
 <table>
 <tr>
@@ -202,8 +199,8 @@ Both on mock hardware, so they run without a robot.
 | [#2422](https://github.com/ros-controls/ros2_controllers/pull/2422) Deliver abort action result before destroying goal handle on preemption | ros2_controllers | Merged |
 | [#2401](https://github.com/ros-controls/ros2_controllers/pull/2401) Trajectory blending with new trajectory deferral | ros2_controllers | Merged, superseded by #2419 |
 | [#3196](https://github.com/ros-controls/ros2_control/pull/3196) Make configure_controller lifecycle transition strict | ros2_control | Merged |
-| [#2491](https://github.com/ros-controls/ros2_controllers/pull/2491) positions_upsampling for positions-only trajectories | ros2_controllers | Open, in review |
-| [#4](https://github.com/vedh1234/ros2_controllers/pull/4) Cross-chunk continuity for positions upsampling | ros2_controllers (fork) | Open, stacked on #2491 |
+| [#2491](https://github.com/ros-controls/ros2_controllers/pull/2491) positions_upsampling for positions-only trajectories | ros2_controllers | Merged |
+| [#2573](https://github.com/ros-controls/ros2_controllers/pull/2573) Cross-chunk continuity for positions upsampling | ros2_controllers | Open |
 | [#3](https://github.com/vedh1234/ros2_controllers/pull/3) Cartesian trajectory controller | ros2_controllers (fork) | Open, stacked on #2491 |
 | [#1159](https://github.com/ros-controls/ros2_control_demos/pull/1159) Example 19, action-chunk upsampling demo | ros2_control_demos | Open, in review |
 | [#1185](https://github.com/ros-controls/ros2_control_demos/pull/1185) Example 20, Cartesian controller demo | ros2_control_demos | Open, in review |
@@ -221,7 +218,7 @@ once #2491 lands.
 | Trajectory replacement, [#2419](https://github.com/ros-controls/ros2_controllers/pull/2419) | Merge at arrival | Defer the new trajectory until its stamp | Deferral leaves `active_goal` and `current_trajectory_` mismatched for the whole wait: tolerance checks suppressed, no client feedback, orphaned pending trajectory if the active one aborts.|
 | Action-chunk support, [#2491](https://github.com/ros-controls/ros2_controllers/pull/2491) | Feature inside JTC | Separate controller inheriting from JTC | Auditing what the standalone controller needed that JTC lacked produced one item, a global spline over positions. Tolerances, timeouts, hold-on-timeout and hardware writes already existed. 860 lines became roughly 90, and any positions-only trajectory benefits, not only policy output. |
 | Spline integration, [#2491](https://github.com/ros-controls/ros2_controllers/pull/2491) | Solve knot velocities, reuse JTC sampling | Add a new `interpolation_method` | Keeps the real-time path byte-identical and leaves every existing JTC feature working. |
-| Chunk boundaries, [#4](https://github.com/vedh1234/ros2_controllers/pull/4) | Clamp chunk start velocity, leave end at rest | Rest at both ends, or carry velocity at both | Removes the stop planned at every seam while keeping fail-safe behaviour if the policy stops publishing. |
+| Chunk boundaries, [#2573](https://github.com/ros-controls/ros2_controllers/pull/2573) | Clamp chunk start velocity, leave end at rest | Rest at both ends, or carry velocity at both | Removes the stop planned at every seam while keeping fail-safe behaviour if the policy stops publishing. |
 | Cartesian path, [#3](https://github.com/vedh1234/ros2_controllers/pull/3) | Interpolate, then IK | IK the sparse input, then interpolate joints | IK-first bends the Cartesian path off the straight line. |
 | Cartesian timing budget, [#3](https://github.com/vedh1234/ros2_controllers/pull/3) | IK in the subscription callback | IK per real-time cycle | Kinematics runs once per message off the RT thread. A 10 s path at 100 Hz on a 7-DOF arm costs about 7 ms to ingest; the RT loop stays as fast as plain JTC. |
 | Cartesian joint output, [#3](https://github.com/vedh1234/ros2_controllers/pull/3) | Velocity fill from `delta_q / dt` | Second Jacobian solve on the analytic twist | The value is already computed, a second solve doubles per-step kinematics, and a fresh `J⁻¹ẋ` disagrees with the integrated positions by the damping and tracking residual, which lets the cubic overshoot between knots. |
