@@ -23,17 +23,17 @@ acceleration spike at every waypoint. `joint_trajectory_controller` (JTC) assume
 derivatives and with enough time to finish before the next one arrives. A policy supplies neither.
 Three gaps followed, one per section below:
 
-- **Trajectory replacement was destructive.** A future-stamped trajectory killed the active one the
+- **Trajectory replacement was destructive:** A future-stamped trajectory killed the active one the
   moment it arrived, discarding the path the robot was still meant to be following and replacing it
   with a slow spline ramp to the new first point. Joints the new message omitted froze instead of
   completing their motion. Tracked as issue
-  [#84](https://github.com/ros-controls/ros2_controllers/issues/84), open since August 2020, and was not ported from ROS 1. *Merged.*
-- **Positions-only messages fell back to linear interpolation.** JTC picks its interpolation degree
+  [#84](https://github.com/ros-controls/ros2_controllers/issues/84), open since August 2020, and was not ported from ROS 1.
+- **Positions-only messages fell back to linear interpolation:** JTC picks its interpolation degree
   from the fields present in the message, so positions alone give straight lines between waypoints,
-  a staircase velocity and an impulse acceleration at every knot. *In review.*
-- **No Cartesian trajectory controller existed.** Joint-space interpolation does not move the tool
+  a staircase velocity and an impulse acceleration at every knot.
+- **No Cartesian trajectory controller existed:** Joint-space interpolation does not move the tool
   along a straight line, and several policy families (diffusion policies, OpenVLA, RT-2) emit
-  end-effector poses rather than joint angles. *In review.*
+  end-effector poses rather than joint angles.
 
 Two end-to-end demos in `ros2_control_demos` and three supporting upstream fixes came out of the
 same work.
@@ -83,7 +83,7 @@ Implementation notes:
 
 Merged as [ros2_controllers#2491](https://github.com/ros-controls/ros2_controllers/pull/2491), with
 cross-chunk continuity following as
-[vedh1234/ros2_controllers#2573](https://github.com/ros-controls/ros2_controllers/pull/2573).
+[ros2_controllers#2573](https://github.com/ros-controls/ros2_controllers/pull/2573).
 
 <table>
 <tr>
@@ -104,7 +104,7 @@ last knot. That is a tridiagonal system per joint, solved in O(n) by the Thomas 
 `fill_cubic_spline_velocities()` (`trajectory.cpp`), called from the non-real-time subscription
 callback.
 
-Cross-chunk continuity (#4) replaces the original rest boundary conditions, which forced `v = 0` at
+Cross-chunk continuity (#2573) replaces the original rest boundary conditions, which forced `v = 0` at
 both ends of every chunk and so planned a stop at every seam; without it the commanded velocity
 rings around the reference by over 0.5 rad/s (figure 2). The start is now clamped to the last
 commanded velocity, using the thread-safe snapshot added in #2564. The end stays at rest, so a
@@ -139,14 +139,13 @@ policy that stops publishing leaves the robot stationary.
 
 ## 3. Cartesian trajectory controller
 
-Open as [vedh1234/ros2_controllers#3](https://github.com/vedh1234/ros2_controllers/pull/3), also
-stacked on #2491. Related to
+Open as [vedh1234/ros2_controllers#3](https://github.com/vedh1234/ros2_controllers/pull/3), on the fork. Related to
 [issue #2435](https://github.com/ros-controls/ros2_controllers/issues/2435).
 
 <table>
 <tr>
-<td width="41%"><img src="assets/ctc_ros_letters.gif" width="100%"></td>
-<td width="59%"><img src="assets/ctc_ros_letters_tracking.png" width="100%"></td>
+<td width="39%"><img src="assets/ctc_ros_letters.gif" width="100%"></td>
+<td width="61%"><img src="assets/ctc_ros_letters_tracking.png" width="100%"></td>
 </tr>
 <tr>
 <td align="center"><em>Figure 4. Tool centre point tracing "ROS" on a 6-DOF arm</em></td>
@@ -206,9 +205,6 @@ Both on mock hardware, so they run without a robot.
 | [#1185](https://github.com/ros-controls/ros2_control_demos/pull/1185) Example 20, Cartesian controller demo | ros2_control_demos | Open, in review |
 | [#2443](https://github.com/ros-controls/ros2_controllers/pull/2443) Standalone InferenceBridgeController | ros2_controllers | Closed, folded into #2491 |
 
-The two fork PRs are stacked on the branch of #2491 to keep their diffs readable. Both move upstream
-once #2491 lands.
-
 ---
 
 ## Design decisions
@@ -227,45 +223,48 @@ once #2491 lands.
 
 ## Current state and what is left
 
-Trajectory blending is merged and released. `positions_upsampling` is functionally complete and in
-review, and both cross-chunk continuity and the Cartesian controller are blocked on it landing
-before they can be opened upstream. Of the three, the Cartesian controller is the most likely to
-change shape in review, since it is a new package rather than an addition to an existing one.
-
-Known gaps, all recorded in the PRs:
+Known limitations of what shipped, all recorded in the PRs, with the fix where there is one:
 
 - **No joint-limit enforcement in the Cartesian controller.** The demo verifier counts violations,
-  so the gap is visible rather than silent.
-  [#3](https://github.com/vedh1234/ros2_controllers/pull/3)
+  so the gap is visible rather than silent. Fixing it means joint-limit handling in the Cartesian
+  path. [#3](https://github.com/vedh1234/ros2_controllers/pull/3)
 - **Differential IK only**, which is all `kinematics_interface` exposes. No redundancy resolution,
-  no analytic solution near singularities.
+  no analytic solution near singularities. An IKFast plugin for `kinematics_interface` would add an
+  analytic constant-time backend, selectable by parameter.
   [#3](https://github.com/vedh1234/ros2_controllers/pull/3)
 - **Omitted joints lose ROS 1's spline fidelity.** ROS 1 held one trajectory per joint; ROS 2's is
   monolithic, so omitted joints are re-sampled onto the new time grid and can deviate when its
-  waypoints are sparse.
+  waypoints are sparse. Architectural, so not planned.
   [#2419](https://github.com/ros-controls/ros2_controllers/pull/2419)
 - **Two cosmetic action-feedback issues when blending**, in the reported waypoint index and
   timestamp. Commanded motion is unaffected.
   [#2419](https://github.com/ros-controls/ros2_controllers/pull/2419)
 
----
-
-## Future work
-
-- Factor the spline machinery into `control_toolbox` so JTC, the Cartesian controller and future
-  controllers share one implementation rather than each carrying its own.
-- IKFast plugin for `kinematics_interface`, giving an analytic constant-time backend selectable by
-  parameter.
-- `FollowCartesianTrajectory` action server, so Cartesian goals get the goal lifecycle, feedback and
-  tolerance handling that joint-space goals already have.
-- Tool-frame relative commands (`command_type: absolute | tool_delta`), resolved to base-frame poses
-  during non-RT ingestion.
-- Joint-limit handling in the Cartesian path.
-- Single-point streaming ingestion for single-step policies, as the N=1 case of chunk ingestion.
+Extensions beyond these like a `control_toolbox` upscaling library, a `FollowCartesianTrajectory`
+action, tool-frame relative commands and single-point streaming ingestion among them, are written up
+with requirements and priorities in the
+[spinoff ideas](https://docs.google.com/document/d/1pwIeKBbK0psOBsYPCz8ptdvFYKlFri0opK-qlxrDw9I/edit?tab=t.0)
+document.
 
 ---
 
-## Reading material
+## Talks, docs and demos
+
+We are taking this work beyond the pull requests and will be presented in following ways:
+
+- **[ROSCon Global 2026](https://roscon.ros.org/2026/)** (Toronto, 22 to 24 September): This work
+  will be presented as part of the ros-controls project update. The talk will cover handling policy inference and jitter inside the control loop.
+- **[ROS Physical AI SIG](https://physical-ai.ros.org/):** A presentation to the OSRA special
+  interest group whose remit is to "identify and eliminate the specific friction points that slow
+  down Physical AI development in ROS", with members from Intel, NVIDIA, BMW, Intrinsic, Robotec.ai,
+  Ekumen and FieldAI, and whose proposals and code are developed in the open at
+  [ros-physical-ai](https://github.com/ros-physical-ai).
+- **A dedicated page on [control.ros.org](https://control.ros.org)**, so the
+  features and the steps to reproduce these results are in the official ros2_control documentation.
+- **Real hardware demos:** Both demos here run on mock hardware so they reproduce anywhere; the next
+  step is the same motions on real arms to demonstrate applicability.
+
+### Reading material
 
 [Design documents](https://drive.google.com/drive/u/0/folders/1xI1t85kyrz7SPEhrgykc0YREK2ujV5vy) written during the project, covering the alternatives considered and the analysis
 behind the decisions above.
@@ -276,7 +275,7 @@ behind the decisions above.
   the action-space survey across policy families, the JTC inheritance feasibility audit, the spline
   method comparison, and the Cartesian control study against AIC, CRISP and issue #2435.
 - [Spinoff ideas](https://docs.google.com/document/d/1pwIeKBbK0psOBsYPCz8ptdvFYKlFri0opK-qlxrDw9I/edit?tab=t.0):
-  the follow-on projects in the future work section, written up with requirements and priorities.
+  eight follow-on projects, written up with requirements and priorities.
 
 ---
 
